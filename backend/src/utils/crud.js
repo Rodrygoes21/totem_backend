@@ -23,10 +23,37 @@ function buildSetClauseAndValues(payload) {
 export function makeCrudRouter(tableName, idColumn = 'id') {
   const router = Router();
 
+  // Define allowed columns per table to avoid SQL errors when client sends extra fields
+  const tableColumns = {
+    TOTEM: ['nombre_to', 'ubicacion', 'color', 'institucion_id', 'categoria_id']
+    // add other tables here if you want to whitelist columns
+  };
+
+  // Helper to normalize payload keys and filter only allowed columns for the table
+  function normalizePayload(payload) {
+    if (!payload || typeof payload !== 'object') return {};
+    const p = { ...payload };
+    if (tableName === 'TOTEM') {
+      // Map frontend field 'nombre' to DB column 'nombre_to'
+      if (p.nombre !== undefined && p.nombre_to === undefined) {
+        p.nombre_to = p.nombre;
+      }
+      // If frontend sends boolean 'activo' but DB doesn't have it, ignore it for now
+      // If you want to persist it, add a column to the DB (see instructions)
+      if (p.activo !== undefined) {
+        // keep it but it will be filtered out unless added to tableColumns
+      }
+    }
+    const allowed = tableColumns[tableName] || null;
+    if (!allowed) return p; // no whitelist -> keep all keys
+    // filter to allowed keys only
+    return Object.fromEntries(Object.entries(p).filter(([k]) => allowed.includes(k)));
+  }
+
   // List
   router.get('/', async (req, res, next) => {
     try {
-  const [rows] = await runQuery(`SELECT * FROM \`${tableName}\``);
+      const [rows] = await runQuery(`SELECT * FROM \`${tableName}\``);
       res.json(rows);
     } catch (err) { next(err); }
   });
@@ -43,7 +70,8 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
   // Create
   router.post('/', async (req, res, next) => {
     try {
-      const payload = req.body || {};
+      const raw = req.body || {};
+      const payload = normalizePayload(raw);
       const { columns, values, placeholders } = buildSetClauseAndValues(payload);
       if (!columns.length) return res.status(400).json({ message: 'No fields to insert' });
       const sql = `INSERT INTO \`${tableName}\` (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
@@ -56,7 +84,8 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
   // Update (partial)
   router.patch(`/:id`, async (req, res, next) => {
     try {
-      const payload = req.body || {};
+      const raw = req.body || {};
+      const payload = normalizePayload(raw);
       const { columns, values } = buildSetClauseAndValues(payload);
       if (!columns.length) return res.status(400).json({ message: 'No fields to update' });
       const setClause = columns.map((c) => `${c} = ?`).join(', ');
