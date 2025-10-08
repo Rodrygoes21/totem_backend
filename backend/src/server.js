@@ -41,11 +41,25 @@ app.use('/api', apiRouter);
 
 // Error handler: surface CORS errors with 401 when thrown by corsOptions
 app.use((err, req, res, _next) => {
-  console.error('Error handler:', err && err.message ? err.message : err);
+  // Log full error in server logs
+  console.error('Error handler:', err && err.stack ? err.stack : err);
+  // If CORS rejection
   if (err && err.message && err.message.startsWith('The CORS policy')) {
     return res.status(401).json({ message: err.message });
   }
-  res.status(err && err.status ? err.status : 500).json({ message: err && err.message ? err.message : 'Internal Server Error' });
+
+  const status = err && err.status ? err.status : 500;
+  const base = { message: err && err.message ? err.message : 'Internal Server Error' };
+
+  // In non-production, include extra details to aid debugging (don't leak in prod)
+  if (process.env.NODE_ENV !== 'production') {
+    if (err && err.sql) base.sql = err.sql;
+    if (err && err.sqlParams) base.sqlParams = err.sqlParams;
+    if (err && err.code) base.code = err.code;
+    if (err && err.stack) base.stack = err.stack;
+  }
+
+  res.status(status).json(base);
 });
 
 const port = Number(process.env.PORT || 3000);

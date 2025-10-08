@@ -1,6 +1,17 @@
 import { Router } from 'express';
 import pool from '../db/pool.js';
 
+async function runQuery(sql, params = []) {
+  try {
+    return await pool.query(sql, params);
+  } catch (err) {
+    // Attach query details to the error to aid debugging upstream
+    try { err.sql = sql; } catch (e) {}
+    try { err.sqlParams = params; } catch (e) {}
+    throw err;
+  }
+}
+
 function buildSetClauseAndValues(payload) {
   const entries = Object.entries(payload).filter(([key, value]) => key !== 'id' && value !== undefined);
   const columns = entries.map(([key]) => `\`${key}\``);
@@ -15,7 +26,7 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
   // List
   router.get('/', async (req, res, next) => {
     try {
-      const [rows] = await pool.query(`SELECT * FROM \`${tableName}\``);
+  const [rows] = await runQuery(`SELECT * FROM \`${tableName}\``);
       res.json(rows);
     } catch (err) { next(err); }
   });
@@ -23,7 +34,7 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
   // Get by id
   router.get(`/:id`, async (req, res, next) => {
     try {
-      const [rows] = await pool.query(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ? LIMIT 1`, [req.params.id]);
+  const [rows] = await runQuery(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ? LIMIT 1`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ message: 'Not found' });
       res.json(rows[0]);
     } catch (err) { next(err); }
@@ -36,8 +47,8 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
       const { columns, values, placeholders } = buildSetClauseAndValues(payload);
       if (!columns.length) return res.status(400).json({ message: 'No fields to insert' });
       const sql = `INSERT INTO \`${tableName}\` (${columns.join(', ')}) VALUES (${placeholders.join(', ')})`;
-      const [result] = await pool.query(sql, values);
-      const [rows] = await pool.query(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`, [result.insertId]);
+  const [result] = await runQuery(sql, values);
+  const [rows] = await runQuery(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`, [result.insertId]);
       res.status(201).json(rows[0]);
     } catch (err) { next(err); }
   });
@@ -50,8 +61,8 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
       if (!columns.length) return res.status(400).json({ message: 'No fields to update' });
       const setClause = columns.map((c) => `${c} = ?`).join(', ');
       const sql = `UPDATE \`${tableName}\` SET ${setClause} WHERE \`${idColumn}\` = ?`;
-      await pool.query(sql, [...values, req.params.id]);
-      const [rows] = await pool.query(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`, [req.params.id]);
+  await runQuery(sql, [...values, req.params.id]);
+  const [rows] = await runQuery(`SELECT * FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ message: 'Not found' });
       res.json(rows[0]);
     } catch (err) { next(err); }
@@ -60,7 +71,8 @@ export function makeCrudRouter(tableName, idColumn = 'id') {
   // Delete
   router.delete(`/:id`, async (req, res, next) => {
     try {
-      const [result] = await pool.query(`DELETE FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`, [req.params.id]);
+  const sql = `DELETE FROM \`${tableName}\` WHERE \`${idColumn}\` = ?`;
+  const [result] = await runQuery(sql, [req.params.id]);
       if (result.affectedRows === 0) return res.status(404).json({ message: 'Not found' });
       res.status(204).send();
     } catch (err) { next(err); }
