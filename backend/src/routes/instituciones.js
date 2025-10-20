@@ -1,39 +1,45 @@
-import { makeCrudRouter } from '../utils/crud.js';
-import pool from '../db/pool.js';
+import express from 'express';
+import {
+  getAllInstituciones,
+  getInstitucionById,
+  createInstitucion,
+  updateInstitucion,
+  deleteInstitucion,
+  toggleInstitucionStatus
+} from '../controllers/institucionController.js';
+import { authenticateToken, requireAdmin } from '../middlewares/auth.js';
+import { validateRequest, validateParams, validateQuery, paginationSchema, idSchema } from '../middlewares/validation.js';
+import Joi from 'joi';
 
-const router = makeCrudRouter('Institucion');
+const router = express.Router();
 
-// Seed random instituciones
-router.post('/seed', async (req, res, next) => {
-  try {
-    const count = Math.max(1, Math.min(100, Number(req.query.count || req.body?.count || 5)));
-
-    const baseNames = [
-      'Universidad', 'Hospital', 'Museo', 'Biblioteca', 'Colegio', 'Centro Cultural',
-      'Ayuntamiento', 'Parque', 'Teatro', 'Estadio', 'Clínica', 'Facultad', 'Instituto'
-    ];
-    const suffixes = [
-      'Nacional', 'Central', 'Municipal', 'Metropolitano', 'Regional', 'Popular',
-      'Del Norte', 'Del Sur', 'Del Este', 'Del Oeste', 'Principal', 'General', 'Del Centro'
-    ];
-
-    const values = Array.from({ length: count }, () => {
-      const a = baseNames[Math.floor(Math.random() * baseNames.length)];
-      const b = suffixes[Math.floor(Math.random() * suffixes.length)];
-      const num = Math.random() < 0.4 ? '' : ` ${Math.floor(Math.random() * 100)}`;
-      return [`${a} ${b}${num}`];
-    });
-
-    const placeholders = values.map(() => '(?)').join(', ');
-    const flatValues = values.flat();
-
-    const sql = `INSERT INTO \`Institucion\` (\`nombre\`) VALUES ${placeholders}`;
-    const [result] = await pool.query(sql, flatValues);
-
-    res.status(201).json({ inserted: result.affectedRows });
-  } catch (err) { next(err); }
+// Schemas de validación
+const institucionSchema = Joi.object({
+  nombre: Joi.string().min(3).max(100).required(),
+  descripcion: Joi.string().max(1000).optional(),
+  direccion: Joi.string().max(200).optional(),
+  telefono: Joi.string().max(20).optional(),
+  email: Joi.string().email().optional(),
+  activo: Joi.boolean().default(true)
 });
 
+const updateInstitucionSchema = Joi.object({
+  nombre: Joi.string().min(3).max(100).optional(),
+  descripcion: Joi.string().max(1000).optional(),
+  direccion: Joi.string().max(200).optional(),
+  telefono: Joi.string().max(20).optional(),
+  email: Joi.string().email().optional(),
+  activo: Joi.boolean().optional()
+});
+
+// Rutas públicas
+router.get('/', validateQuery(paginationSchema), getAllInstituciones);
+router.get('/:id', validateParams(idSchema), getInstitucionById);
+
+// Rutas protegidas (solo admin)
+router.post('/', authenticateToken, requireAdmin, validateRequest(institucionSchema), createInstitucion);
+router.put('/:id', authenticateToken, requireAdmin, validateParams(idSchema), validateRequest(updateInstitucionSchema), updateInstitucion);
+router.delete('/:id', authenticateToken, requireAdmin, validateParams(idSchema), deleteInstitucion);
+router.put('/:id/toggle', authenticateToken, requireAdmin, validateParams(idSchema), toggleInstitucionStatus);
+
 export default router;
-
-

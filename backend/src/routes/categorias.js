@@ -1,57 +1,43 @@
-import { makeCrudRouter } from '../utils/crud.js';
-import pool from '../db/pool.js';
+import express from 'express';
+import {
+  getAllCategorias,
+  getCategoriaById,
+  createCategoria,
+  updateCategoria,
+  deleteCategoria,
+  toggleCategoriaStatus
+} from '../controllers/categoriaController.js';
+import { authenticateToken, requireAdmin } from '../middlewares/auth.js';
+import { validateRequest, validateParams, validateQuery, paginationSchema, idSchema } from '../middlewares/validation.js';
+import Joi from 'joi';
 
-const router = makeCrudRouter('Categoria');
+const router = express.Router();
 
-// Seed random categorias
-router.post('/seed', async (req, res, next) => {
-  try {
-    const count = Math.max(1, Math.min(100, Number(req.query.count || req.body?.count || 5)));
-
-    const baseNames = [
-      'Información General', 'Servicios', 'Historia', 'Contacto', 'Eventos', 'Noticias',
-      'Trámites', 'Admisiones', 'Cultura', 'Deportes', 'Salud', 'Biblioteca', 'Turismo'
-    ];
-    const infoPhrases = [
-      'Información básica y general del lugar',
-      'Servicios disponibles en la institución',
-      'Información histórica y cultural',
-      'Datos de contacto y ubicación',
-      'Calendario y detalles de próximos eventos',
-      'Últimas novedades y anuncios',
-      'Guía de trámites y requisitos',
-      'Proceso y requisitos de admisión',
-      'Agenda cultural y actividades',
-      'Actividades y reservas deportivas',
-      'Orientación y servicios de salud',
-      'Catálogo y préstamos de biblioteca',
-      'Puntos de interés y visitas'
-    ];
-    const icons = [
-      'info-icon', 'services-icon', 'history-icon', 'contact-icon', 'event-icon', 'news-icon',
-      'form-icon', 'admission-icon', 'culture-icon', 'sports-icon', 'health-icon', 'library-icon', 'tour-icon'
-    ];
-
-    const values = Array.from({ length: count }, () => {
-      const idx = Math.floor(Math.random() * baseNames.length);
-      const suffix = Math.random() < 0.5 ? '' : ` ${Math.floor(Math.random() * 100)}`;
-      return [
-        `${baseNames[idx]}${suffix}`,
-        infoPhrases[idx],
-        icons[idx]
-      ];
-    });
-
-    const placeholders = values.map(() => '(?, ?, ?)').join(', ');
-    const flatValues = values.flat();
-
-    const sql = `INSERT INTO \`Categoria\` (\`nombre\`, \`informacion\`, \`icon\`) VALUES ${placeholders}`;
-    const [result] = await pool.query(sql, flatValues);
-
-    res.status(201).json({ inserted: result.affectedRows });
-  } catch (err) { next(err); }
+// Schemas de validación
+const categoriaSchema = Joi.object({
+  nombre: Joi.string().min(3).max(50).required(),
+  informacion: Joi.string().max(1000).optional(),
+  icon: Joi.string().max(100).optional(),
+  color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).default('#3498db'),
+  activo: Joi.boolean().default(true)
 });
 
+const updateCategoriaSchema = Joi.object({
+  nombre: Joi.string().min(3).max(50).optional(),
+  informacion: Joi.string().max(1000).optional(),
+  icon: Joi.string().max(100).optional(),
+  color: Joi.string().pattern(/^#[0-9A-F]{6}$/i).optional(),
+  activo: Joi.boolean().optional()
+});
+
+// Rutas públicas
+router.get('/', validateQuery(paginationSchema), getAllCategorias);
+router.get('/:id', validateParams(idSchema), getCategoriaById);
+
+// Rutas protegidas (solo admin)
+router.post('/', authenticateToken, requireAdmin, validateRequest(categoriaSchema), createCategoria);
+router.put('/:id', authenticateToken, requireAdmin, validateParams(idSchema), validateRequest(updateCategoriaSchema), updateCategoria);
+router.delete('/:id', authenticateToken, requireAdmin, validateParams(idSchema), deleteCategoria);
+router.put('/:id/toggle', authenticateToken, requireAdmin, validateParams(idSchema), toggleCategoriaStatus);
+
 export default router;
-
-
